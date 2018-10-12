@@ -5,13 +5,25 @@ using System.Linq;
 using NetworkManager;
 using static NetworkManager.Utility;
 using static NetworkManager.Network;
-using static NetworkManager.Network.Comunication;
 
 namespace BlockchainManager
 {
   public static class HookToNetwork
   {
-    private static bool SetNetwork() { return Protocol.AddOnReceivingObjectAction("VectorBlocks", Blockchain.GetVectorBlocks); }
+    internal static Network Network;
+    private static bool SetNetwork(Network Network)
+    {
+      Network.BufferManager.AddSyncDataAction(ActionSync, "DataVector");
+      return Network.Protocol.AddOnReceivingObjectAction("VectorBlocks", Blockchain.GetVectorBlocks);
+    }
+    private static void ActionSync(string XmlObject, DateTime Timestamp)
+    {
+      if (Converter.XmlToObject(XmlObject, typeof(Blockchain.Block.DataVector), out object ObjDataVector))
+      {
+        var DataVector = (Blockchain.Block.DataVector)ObjDataVector;
+        var Block = new Blockchain.Block(DataVector.Blockchain, DataVector.Data, Timestamp);
+      }
+    }
 
     /// <summary>
     /// This method initializes the network.
@@ -21,7 +33,7 @@ namespace BlockchainManager
     /// <param name="MyAddress">Your web address. If you do not want to create the node, omit this parameter</param>
     /// <param name="EntryPoints">The list of permanent access points nodes, to access the network. If null then the entry points will be those set in the NetworkManager.Setup</param>
     /// <param name="NetworkName">The name of the infrastructure. For tests we recommend using "testnet"</param>
-    public static bool Initialize(string MyAddress = null, Dictionary<string, string> EntryPoints = null, string NetworkName = "testnet")
+    public static Network Initialize(string MyAddress = null, Dictionary<string, string> EntryPoints = null, string NetworkName = "testnet")
     {
       //#if DEBUG
       //      //NodeList = new Node[1] { new Node() { Server = "http://www.bitboxlab.com", MachineName = "ANDREA", PublicKey = "" } };
@@ -39,15 +51,15 @@ namespace BlockchainManager
             NodeList.Add(new Node() { MachineName = Entry.Key, Address = Entry.Value });
           Nodes = NodeList.ToArray();
         }
-        Network.Initialize(MyAddress, Nodes, NetworkName);
-        return SetNetwork();
+        Network = new Network(Nodes, NetworkName, MyAddress);
+        SetNetwork(Network);
+        return Network; 
       }
       catch (Exception)
       {
-        return false;
+        return null;
       }
     }
-
   }
 
   public class Blockchain
@@ -55,21 +67,23 @@ namespace BlockchainManager
     public Blockchain()
     {
     }
-    public Blockchain(string[] PublicKeys, string Group, string Name, BlockchainType Type, BlockSynchronization HowTheBlocksAreLatched, bool AcceptBodySignature, int MaxBlockLenght = 2048, double DaysExpiredAfterInactivity = 30)
+    public Blockchain(string[] PublicKeys, string Group, string Name, BlockchainType Type, BlockSynchronization SynchronizationType, bool AcceptBodySignature, int MaxBlockLenght = 2048, double DaysExpiredAfterInactivity = 30)
     {
       this.PublicKeys = PublicKeys;
       this.Group = Group;
       this.Name = Name;
       this.Type = Type;
+      this.SynchronizationType = SynchronizationType;
       this.AcceptBodySignature = AcceptBodySignature;
       this.MaxBlockLenght = MaxBlockLenght;
       this.ExpiredAfterInactivity = TimeSpan.FromDays(DaysExpiredAfterInactivity);
     }
-    public Blockchain(string Group, string Name, BlockchainType Type, BlockSynchronization HowTheBlocksAreLatched, bool AcceptBodySignature, int MaxBlockLenght = 2048, double DaysExpiredAfterInactivity = 30)
+    public Blockchain(string Group, string Name, BlockchainType Type, BlockSynchronization SynchronizationType, bool AcceptBodySignature, int MaxBlockLenght = 2048, double DaysExpiredAfterInactivity = 30)
     {
       this.Group = Group;
       this.Name = Name;
       this.Type = Type;
+      this.SynchronizationType = SynchronizationType;
       this.AcceptBodySignature = AcceptBodySignature;
       this.MaxBlockLenght = MaxBlockLenght;
       this.ExpiredAfterInactivity = TimeSpan.FromDays(DaysExpiredAfterInactivity);
@@ -120,7 +134,10 @@ namespace BlockchainManager
     public string[] PublicKeys;
     public string Group;
     public string Name;
-    public BlockSynchronization HowTheBlocksAreLatched;
+    /// <summary>
+    /// How the blocks will be synchronized on the blockchain
+    /// </summary>
+    public BlockSynchronization SynchronizationType;
     /// <summary>
     /// If you use the AddInLocalAndSync mode, make sure that no blocks are added simultaneously.
     /// If you use SendToTheNetworkBuffer mode, the network will add blocks to the blockchain.
@@ -157,7 +174,6 @@ namespace BlockchainManager
       object ReturnObject;
       Converter.XmlToObject(XmlVectorBlocks, typeof(Blockchain.VectorBlocks), out Obj);
       Blockchain.VectorBlocks VectorBlocks = (Blockchain.VectorBlocks)Obj;
-
       Blockchain.VectorBlocks ReturnVectorBlocks = new Blockchain.VectorBlocks();
       if (UpdateLocalBlockchain(VectorBlocks, ReturnVectorBlocks))
         ReturnObject = ReturnVectorBlocks;
@@ -204,22 +220,23 @@ namespace BlockchainManager
     /// <summary>
     /// Synchronize the local blockchain, with the nodes remotely
     /// </summary>
-    public void RequestAnyNewBlocks()
+    /// <returns>Returns False if the operation fails</returns>
+    public bool RequestAnyNewBlocks()
     {
-      NodeExecute((Node Node) =>
-      {
-        try
-        {
-          long CurrentLength = this.Length();
-          VectorBlocks Vector = new VectorBlocks() { Blockchain = this, RequestSendBlocksFromPosition = CurrentLength };
-          VectorToNode(Vector, Node.Address, Node.MachineName);
-          return true;
-        }
-        catch (Exception)
-        {
-          return false;
-        }
-      });
+      return HookToNetwork.Network.InteractWithRandomNode((Node Node) =>
+       {
+         try
+         {
+           long CurrentLength = this.Length();
+           VectorBlocks Vector = new VectorBlocks() { Blockchain = this, RequestSendBlocksFromPosition = CurrentLength };
+           VectorToNode(Vector, Node.Address, Node.MachineName);
+           return true;
+         }
+         catch (Exception)
+         {
+           return false;
+         }
+       });
     }
     private void VectorToNode(VectorBlocks Vector, string Server, string MachineName)
     {
@@ -231,12 +248,12 @@ namespace BlockchainManager
         string ReturnXmlObject = null;
         string ReturnFromUser = null;
         object Obj = null;
-        var XmlObjectVector = SendObjectSync((object)Vector, Server, null, MachineName);
+        var XmlObjectVector = HookToNetwork.Network.Comunication.SendObjectSync((object)Vector, Server, null, MachineName);
         if (!string.IsNullOrEmpty(XmlObjectVector))
         {
           object ReturmObj;
-          Converter.XmlToObject(XmlObjectVector, typeof(ObjectVector), out ReturmObj);
-          ObjectVector ObjVector = (ObjectVector)ReturmObj;
+          Converter.XmlToObject(XmlObjectVector, typeof(ComunicationClass.ObjectVector), out ReturmObj);
+          ComunicationClass.ObjectVector ObjVector = (ComunicationClass.ObjectVector)ReturmObj;
           ReturnObjectName = ObjVector.ObjectName;
           ReturnXmlObject = ObjVector.XmlObject;
           ReturnFromUser = ObjVector.FromUser;
@@ -268,44 +285,56 @@ namespace BlockchainManager
         }
       } while (ReturnVector != null && ReturnVector.ReadBlocksResult == ReadBlocksResult.Partial);
     }
-    public void SendBlockToNetwork(Block Block)
+    /// <summary>
+    /// Send a locally block it to the nodes of the network
+    /// </summary>
+    /// <param name="Block">The block</param>
+    /// <returns>Returns False if the operation fails</returns>
+    public bool SendBlockToNetwork(Block Block)
     {
-      SyncBlocksToNetwork(new List<Block>() { Block }, -1);
+      return SyncBlocksToNetwork(new List<Block>() { Block }, -1);
     }
-    public void SendBlocksToNetwork(List<Block> Blocks)
+    /// <summary>
+    /// Send locally blocks it to the nodes of the network
+    /// </summary>
+    /// <param name="Blocks">The blocks</param>
+    /// <returns>Returns False if the operation fails</returns>
+    public bool SendBlocksToNetwork(List<Block> Blocks)
     {
-      SyncBlocksToNetwork(Blocks, -1);
+      return SyncBlocksToNetwork(Blocks, -1);
     }
     /// <summary>
     /// Synchronize a block written locally and transmit it to the nodes of the network
     /// </summary>
     /// <param name="Block">The block</param>
     /// <param name="Position">Base 0 position</param>
-    public void SyncBlockToNetwork(Block Block, long Position)
+    /// <returns>Returns False if the operation fails</returns>
+    public bool SyncBlockToNetwork(Block Block, long Position)
     {
-      SyncBlocksToNetwork(new List<Block>() { Block }, Position);
+      return SyncBlocksToNetwork(new List<Block>() { Block }, Position);
     }
     /// <summary>
     /// Synchronize the blocks written locally and transmit it to the nodes of the network
     /// </summary>
     /// <param name="Blocks">The blocks</param>
     /// <param name="Position">Base 0 position</param>
-    public void SyncBlocksToNetwork(List<Block> Blocks, long Position)
+    /// <returns>Returns False if the operation fails</returns>
+    public bool SyncBlocksToNetwork(List<Block> Blocks, long Position)
     {
-      NodeExecute((Node Node) =>
-      {
-        try
-        {
-          VectorBlocks Vector = new VectorBlocks() { Blockchain = this, Blocks = Blocks, Position = Position };
-          if (Node.MachineName != Setup.Network.MachineName)
-            VectorToNode(Vector, Node.Address, Node.MachineName);
-          return true;
-        }
-        catch (Exception)
-        {
-          return false;
-        }
-      });
+      return HookToNetwork.Network.InteractWithRandomNode((Node Node) =>
+       {
+         try
+         {
+           VectorBlocks Vector = new VectorBlocks() { Blockchain = this, Blocks = Blocks, Position = Position };
+           if (Node.MachineName != HookToNetwork.Network.MachineName)
+             VectorToNode(Vector, Node.Address, Node.MachineName);
+           return true;
+         }
+         catch (Exception)
+         {
+           return false;
+         }
+       });
     }
 
     /// <summary>
@@ -314,7 +343,7 @@ namespace BlockchainManager
     /// </summary>
     /// <param name="Vector">Parameter that is used to send blocks or to request blocks</param>
     /// <param name="SetReturnVector">This parameter returns a vector containing possible blocks to be synchronized on the local blockchain</param>
-    /// <returns></returns>
+    /// <returns>Returns False if the operation fails</returns>
     public static bool UpdateLocalBlockchain(VectorBlocks Vector, VectorBlocks SetReturnVector = null)
     {
 
@@ -389,6 +418,7 @@ namespace BlockchainManager
       private Block()
       {
       }
+
       /// <summary>
       /// Instantiate a block from a record of data written on the blockchain.
       /// It is used to read the blockchain.
@@ -430,18 +460,33 @@ namespace BlockchainManager
         }
         _Block(Blockchain, Data);
       }
+
+      /// <summary>
+      /// Use this method only for data that exits from shared buffer
+      /// </summary>
+      /// <param name="Blockchain"></param>
+      /// <param name="Data"></param>
+      /// <param name="TimeStamp">The timestam assigned by the buffer</param>
+      internal Block(Blockchain Blockchain, string Data, DateTime TimeStamp)
+      {
+        _Block(Blockchain, Data, Timestamp, true);
+      }
+
       /// <summary>
       /// Set a block that will be immediately added to the blockchain.
       /// If the blockchain has set a public key, then the block will not be added now, but will need to be added later once the signature is added
       /// </summary>
       /// <param name="Blockchain">The Blockchain used</param>
       /// <param name="Data">The data to be included in the block</param>
-      private void _Block(Blockchain Blockchain, string Data)
+      private void _Block(Blockchain Blockchain, string Data, DateTime TimeStamp = default(DateTime), bool Local = false)
       {
         this.Blockchain = Blockchain;
         this._Data = Data;
-        _Timestamp = DateTime.Now.ToUniversalTime();
-        if (Blockchain.HowTheBlocksAreLatched == BlockSynchronization.AddInLocalAndSync)
+        if (TimeStamp != default(DateTime))
+          _Timestamp = TimeStamp;
+        else
+          _Timestamp = DateTime.Now.ToUniversalTime();
+        if (Local == true || Blockchain.SynchronizationType == BlockSynchronization.AddInLocalAndSync)
         {
           PreviousBlock = Blockchain.GetLastBlock();
           _Checksum = CalculateChecksum();
@@ -453,8 +498,18 @@ namespace BlockchainManager
         }
         else
         {
-          Blockchain.SendBlockToNetwork(this);
+          DataVector Vector = new DataVector();
+         HookToNetwork.Network.BufferManager.AddToSaredBuffer(Vector);
+          //Blockchain.SendBlockToNetwork(this);
         }
+      }
+      /// <summary>
+      /// This element is used to send the data inserted in the block to the shared buffer
+      /// </summary>
+      public class DataVector
+      {
+        public Blockchain Blockchain;
+        public String Data;
       }
       private Block PreviousBlock;
       public bool AddBlockSignature(byte[] SignedChecksum)
