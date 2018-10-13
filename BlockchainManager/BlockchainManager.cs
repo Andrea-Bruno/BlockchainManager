@@ -10,20 +10,27 @@ namespace BlockchainManager
 {
   public static class HookToNetwork
   {
-    internal static Network Network;
-    private static bool SetNetwork(Network Network)
+    public static Network CurrentNetwork { get { return _CurrentNetwork; } }
+    internal static Network _CurrentNetwork;
+    internal static Dictionary<string, Network> HookedNetworks;
+    /// <summary>
+    /// The new blockchain instances will all be created on the selected network.
+    /// Use this function to change the current network.
+    /// By default, the current network will be the last initialized network.
+    /// </summary>
+    /// <param name="NetworkName">Select the network with this name</param>
+    public static void ChooseCurrentNetwork(string NetworkName)
     {
-      Network.BufferManager.AddSyncDataAction(ActionSync, "DataVector");
-      return Network.Protocol.AddOnReceivingObjectAction("VectorBlocks", Blockchain.GetVectorBlocks);
-    }
-    private static void ActionSync(string XmlObject, DateTime Timestamp)
-    {
-      if (Converter.XmlToObject(XmlObject, typeof(Blockchain.Block.DataVector), out object ObjDataVector))
+      try
       {
-        var DataVector = (Blockchain.Block.DataVector)ObjDataVector;
-        var Block = new Blockchain.Block(DataVector.Blockchain, DataVector.Data, Timestamp);
+        _CurrentNetwork = HookedNetworks[NetworkName];
+      }
+      catch (Exception)
+      {
+        throw new Exception("No network with this name has been initialized");
       }
     }
+
 
     /// <summary>
     /// This method initializes the network.
@@ -41,6 +48,8 @@ namespace BlockchainManager
       //#else
       //        NodeList = new Node[1] { new Node() { Server = "http://www.bitboxlab.com", MachineName = "ANDREA", PublicKey = "" } };
       //#endif
+      if (HookedNetworks.ContainsKey(NetworkName))
+        throw new Exception("Node already hooked");
       try
       {
         Node[] Nodes = null;
@@ -51,24 +60,43 @@ namespace BlockchainManager
             NodeList.Add(new Node() { MachineName = Entry.Key, Address = Entry.Value });
           Nodes = NodeList.ToArray();
         }
-        Network = new Network(Nodes, NetworkName, MyAddress);
+        var Network = new Network(Nodes, NetworkName, MyAddress);
         SetNetwork(Network);
-        return Network; 
+        HookedNetworks.Add(NetworkName, Network);
+        _CurrentNetwork = Network;
+        return Network;
       }
       catch (Exception)
       {
         return null;
       }
     }
+    private static bool SetNetwork(Network Network)
+    {
+      Network.BufferManager.AddSyncDataAction(ActionSync, "DataVector");
+      return Network.Protocol.AddOnReceivingObjectAction("VectorBlocks", Blockchain.GetVectorBlocks);
+    }
+    private static void ActionSync(string XmlObject, DateTime Timestamp)
+    {
+      if (Converter.XmlToObject(XmlObject, typeof(Blockchain.Block.DataVector), out object ObjDataVector))
+      {
+        var DataVector = (Blockchain.Block.DataVector)ObjDataVector;
+        var Block = new Blockchain.Block(DataVector.Blockchain, DataVector.Data, Timestamp);
+      }
+    }
+
+
   }
 
   public class Blockchain
   {
     public Blockchain()
     {
+      this.Network = HookToNetwork._CurrentNetwork;
     }
     public Blockchain(string[] PublicKeys, string Group, string Name, BlockchainType Type, BlockSynchronization SynchronizationType, bool AcceptBodySignature, int MaxBlockLenght = 2048, double DaysExpiredAfterInactivity = 30)
     {
+      this.Network = HookToNetwork._CurrentNetwork;
       this.PublicKeys = PublicKeys;
       this.Group = Group;
       this.Name = Name;
@@ -80,6 +108,7 @@ namespace BlockchainManager
     }
     public Blockchain(string Group, string Name, BlockchainType Type, BlockSynchronization SynchronizationType, bool AcceptBodySignature, int MaxBlockLenght = 2048, double DaysExpiredAfterInactivity = 30)
     {
+      this.Network = HookToNetwork._CurrentNetwork;
       this.Group = Group;
       this.Name = Name;
       this.Type = Type;
@@ -88,6 +117,7 @@ namespace BlockchainManager
       this.MaxBlockLenght = MaxBlockLenght;
       this.ExpiredAfterInactivity = TimeSpan.FromDays(DaysExpiredAfterInactivity);
     }
+    private Network Network = null;
     public void Save()
     {
       if ((!System.IO.Directory.Exists(Directory())))
@@ -100,11 +130,12 @@ namespace BlockchainManager
         xml.Serialize(Stream, this, xmlns);
       }
     }
+
     public static Blockchain Load(string Group, string Name)
     {
       try
       {
-        string File = PathNameFile(Group, Name) + ".info";
+        string File = PathNameFile(HookToNetwork.CurrentNetwork, Group, Name) + ".info";
         Blockchain Value;
         if (System.IO.File.Exists(File))
         {
@@ -223,7 +254,7 @@ namespace BlockchainManager
     /// <returns>Returns False if the operation fails</returns>
     public bool RequestAnyNewBlocks()
     {
-      return HookToNetwork.Network.InteractWithRandomNode((Node Node) =>
+      return Network.InteractWithRandomNode((Node Node) =>
        {
          try
          {
@@ -248,7 +279,7 @@ namespace BlockchainManager
         string ReturnXmlObject = null;
         string ReturnFromUser = null;
         object Obj = null;
-        var XmlObjectVector = HookToNetwork.Network.Comunication.SendObjectSync((object)Vector, Server, null, MachineName);
+        var XmlObjectVector = Network.Comunication.SendObjectSync((object)Vector, Server, null, MachineName);
         if (!string.IsNullOrEmpty(XmlObjectVector))
         {
           object ReturmObj;
@@ -321,12 +352,12 @@ namespace BlockchainManager
     /// <returns>Returns False if the operation fails</returns>
     public bool SyncBlocksToNetwork(List<Block> Blocks, long Position)
     {
-      return HookToNetwork.Network.InteractWithRandomNode((Node Node) =>
+      return Network.InteractWithRandomNode((Node Node) =>
        {
          try
          {
            VectorBlocks Vector = new VectorBlocks() { Blockchain = this, Blocks = Blocks, Position = Position };
-           if (Node.MachineName != HookToNetwork.Network.MachineName)
+           if (Node.MachineName != Network.MachineName)
              VectorToNode(Vector, Node.Address, Node.MachineName);
            return true;
          }
@@ -499,7 +530,7 @@ namespace BlockchainManager
         else
         {
           DataVector Vector = new DataVector();
-         HookToNetwork.Network.BufferManager.AddToSaredBuffer(Vector);
+          Blockchain.Network.BufferManager.AddToSaredBuffer(Vector);
           //Blockchain.SendBlockToNetwork(this);
         }
       }
@@ -744,17 +775,17 @@ namespace BlockchainManager
       return System.IO.Path.Combine(Path, PathNameFile);
 
     }
-    private static string Directory(string Group)
+    private static string Directory(Network Network, string Group)
     {
-      return MapPath(System.IO.Path.Combine(Setup.Ambient.Repository, Group));
+      return MapPath(System.IO.Path.Combine(Setup.Ambient.Repository, AbjustNameFile(Network.NetworkName), AbjustNameFile(Group)));
     }
     private string Directory()
     {
-      return Directory(Group);
+      return Directory(Network, Group);
     }
-    private static string PathNameFile(string Group, string Name)
+    private static string PathNameFile(Network Network, string Group, string Name)
     {
-      return System.IO.Path.Combine(Directory(Group), AbjustNameFile(Name) + ".bloks");
+      return System.IO.Path.Combine(Directory(Network, Group), AbjustNameFile(Name) + ".bloks");
     }
     private string PathNameFile()
     {
