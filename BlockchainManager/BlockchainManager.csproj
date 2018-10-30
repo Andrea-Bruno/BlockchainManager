@@ -10,7 +10,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\Network\Network\Network.csproj" />
+    <ProjectReference Include="..\..\Network\Network\NetworkManager.csproj" />
   </ItemGroup>
 
 </Project>

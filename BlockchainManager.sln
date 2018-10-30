@@ -4,26 +4,28 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 VisualStudioVersion = 15.0.27703.2047
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "BlockchainManager", "BlockchainManager\BlockchainManager.csproj", "{8A534F66-1C0D-4CCC-BC3C-A9DF7150C4C9}"
-	ProjectSection(ProjectDependencies) = postProject
-		{44DEF88D-0E44-4278-BFBC-00152EF04939} = {44DEF88D-0E44-4278-BFBC-00152EF04939}
-	EndProjectSection
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Network", "..\Network\Network\Network.csproj", "{44DEF88D-0E44-4278-BFBC-00152EF04939}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "NetworkManager", "..\Network\Network\NetworkManager.csproj", "{5B395AB6-8A02-4668-8473-B20613E890DC}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
+		DebugNetwork|Any CPU = DebugNetwork|Any CPU
 		Release|Any CPU = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
 		{8A534F66-1C0D-4CCC-BC3C-A9DF7150C4C9}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{8A534F66-1C0D-4CCC-BC3C-A9DF7150C4C9}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{8A534F66-1C0D-4CCC-BC3C-A9DF7150C4C9}.DebugNetwork|Any CPU.ActiveCfg = DebugNetwork|Any CPU
+		{8A534F66-1C0D-4CCC-BC3C-A9DF7150C4C9}.DebugNetwork|Any CPU.Build.0 = DebugNetwork|Any CPU
 		{8A534F66-1C0D-4CCC-BC3C-A9DF7150C4C9}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{8A534F66-1C0D-4CCC-BC3C-A9DF7150C4C9}.Release|Any CPU.Build.0 = Release|Any CPU
-		{44DEF88D-0E44-4278-BFBC-00152EF04939}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{44DEF88D-0E44-4278-BFBC-00152EF04939}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{44DEF88D-0E44-4278-BFBC-00152EF04939}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{44DEF88D-0E44-4278-BFBC-00152EF04939}.Release|Any CPU.Build.0 = Release|Any CPU
+		{5B395AB6-8A02-4668-8473-B20613E890DC}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5B395AB6-8A02-4668-8473-B20613E890DC}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5B395AB6-8A02-4668-8473-B20613E890DC}.DebugNetwork|Any CPU.ActiveCfg = DebugNetwork|Any CPU
+		{5B395AB6-8A02-4668-8473-B20613E890DC}.DebugNetwork|Any CPU.Build.0 = DebugNetwork|Any CPU
+		{5B395AB6-8A02-4668-8473-B20613E890DC}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5B395AB6-8A02-4668-8473-B20613E890DC}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

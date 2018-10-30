@@ -1,29 +1,33 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Text;
+using System.Diagnostics;
+using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
+using System.Threading;
+using System.Xml.Serialization;
 using NetworkManager;
-using static NetworkManager.Utility;
-using static NetworkManager.Network;
 
 namespace BlockchainManager
 {
-  public static class HookToNetwork
+  public static class NetworkInitializer
   {
-    public static Network CurrentNetwork { get { return _CurrentNetwork; } }
-    internal static Network _CurrentNetwork;
-    internal static Dictionary<string, Network> HookedNetworks;
+    public static Network CurrentNetwork { get; private set; }
+
+    internal static List<Network> HookedNetworks = new List<Network>();
+
     /// <summary>
-    /// The new blockchain instances will all be created on the selected network.
-    /// Use this function to change the current network.
-    /// By default, the current network will be the last initialized network.
+    ///   The new Blockchain instances will all be created on the selected network.
+    ///   Use this function to change the current network.
+    ///   By default, the current network will be the last initialized network.
     /// </summary>
-    /// <param name="NetworkName">Select the network with this name</param>
-    public static void ChooseCurrentNetwork(string NetworkName)
+    /// <param name="index">Select the network with this Index</param>
+    public static void ChooseCurrentNetwork(int index)
     {
       try
       {
-        _CurrentNetwork = HookedNetworks[NetworkName];
+        CurrentNetwork = HookedNetworks[index];
       }
       catch (Exception)
       {
@@ -31,16 +35,35 @@ namespace BlockchainManager
       }
     }
 
+    /// <summary>
+    ///   The new Blockchain instances will all be created on the current network.
+    ///   Use this function to change the current network.
+    ///   By default, the current network will be the last initialized network.
+    /// </summary>
+    /// <param name="network">The new current Network</param>
+    public static void SetCurrentNetwork(Network network)
+    {
+      CurrentNetwork = network;
+    }
 
     /// <summary>
-    /// This method initializes the network.
-    /// You can join the network as a node, and contribute to decentralization, or hook yourself to the network as an external user.
-    /// To create a node, set the MyAddress parameter with your web address.If MyAddress is not set then you are an external user.
+    ///   This method initializes a new network class.
+    ///   A network is a p2p network made up of multiple nodes.
+    ///   By repeating this command, you can link to multiple networks to use or participate in different networks
+    ///   simultaneously.
+    ///   You can join the network as a node, and contribute to decentralization, or hook yourself to the network as an
+    ///   external user.
+    ///   To create a node, set the MyAddress parameter with your web address.If MyAddress is not set then you are an external
+    ///   user.
     /// </summary>
-    /// <param name="MyAddress">Your web address. If you do not want to create the node, omit this parameter</param>
-    /// <param name="EntryPoints">The list of permanent access points nodes, to access the network. If null then the entry points will be those set in the NetworkManager.Setup</param>
-    /// <param name="NetworkName">The name of the infrastructure. For tests we recommend using "testnet"</param>
-    public static Network Initialize(string MyAddress = null, Dictionary<string, string> EntryPoints = null, string NetworkName = "testnet")
+    /// <param name="entryPoints">
+    ///   Value pairs Address and MachineName: The list of permanent access points nodes, to access the
+    ///   network
+    /// </param>
+    /// <param name="networkName">The name of the infrastructure. For tests we recommend using "testnet"</param>
+    /// <param name="myNode">Data related to your node. If you do not want to create the node, omit this parameter</param>
+    public static Network HookToNetwork(Dictionary<string, string> entryPoints, string networkName = "testnet",
+      NodeInitializer myNode = null)
     {
       //#if DEBUG
       //      //NodeList = new Node[1] { new Node() { Server = "http://www.bitboxlab.com", MachineName = "ANDREA", PublicKey = "" } };
@@ -48,402 +71,433 @@ namespace BlockchainManager
       //#else
       //        NodeList = new Node[1] { new Node() { Server = "http://www.bitboxlab.com", MachineName = "ANDREA", PublicKey = "" } };
       //#endif
-      if (HookedNetworks.ContainsKey(NetworkName))
-        throw new Exception("Node already hooked");
+      //if (HookedNetworks.ContainsKey(NetworkName))
+      //  throw new Exception("Node already hooked");
       try
       {
-        Node[] Nodes = null;
-        if (EntryPoints != null)
+        Node[] nodes = null;
+        if (entryPoints != null)
         {
-          var NodeList = new List<Node>();
-          foreach (var Entry in EntryPoints)
-            NodeList.Add(new Node() { MachineName = Entry.Key, Address = Entry.Value });
-          Nodes = NodeList.ToArray();
+          var nodeList = new List<Node>();
+          foreach (var entry in entryPoints)
+            nodeList.Add(new Node { Address = entry.Key, MachineName = entry.Value });
+          nodes = nodeList.ToArray();
         }
-        var Network = new Network(Nodes, NetworkName, MyAddress);
-        SetNetwork(Network);
-        HookedNetworks.Add(NetworkName, Network);
-        _CurrentNetwork = Network;
-        return Network;
+
+        var network = new Network(nodes, networkName, myNode);
+        SetNetwork(network);
+        HookedNetworks.Add(network);
+        CurrentNetwork = network;
+        return network;
       }
-      catch (Exception)
+      catch (Exception ex)
       {
+        Debug.Print(ex.Message);
+        Debugger.Break();
         return null;
       }
     }
-    private static bool SetNetwork(Network Network)
+
+    private static bool SetNetwork(Network network)
     {
-      Network.BufferManager.AddSyncDataAction(ActionSync, "DataVector");
-      return Network.Protocol.AddOnReceivingObjectAction("VectorBlocks", Blockchain.GetVectorBlocks);
-    }
-    private static void ActionSync(string XmlObject, DateTime Timestamp)
-    {
-      if (Converter.XmlToObject(XmlObject, typeof(Blockchain.Block.DataVector), out object ObjDataVector))
-      {
-        var DataVector = (Blockchain.Block.DataVector)ObjDataVector;
-        var Block = new Blockchain.Block(DataVector.Blockchain, DataVector.Data, Timestamp);
-      }
+      network.AddSyncDataFromBufferAction(ActionSync, "DataVector");
+      return network.Protocol.AddOnReceivingObjectAction("VectorBlocks", Blockchain.GetVectorBlocks);
     }
 
-
+    private static void ActionSync(string xmlObject, long timestamp)
+    {
+      if (!Converter.XmlToObject(xmlObject, typeof(Blockchain.Block.DataVector), out var objDataVector)) return;
+      var dataVector = (Blockchain.Block.DataVector)objDataVector;
+      var block = new Blockchain.Block(dataVector.Blockchain, dataVector.Data, new DateTime(timestamp));
+    }
   }
 
   public class Blockchain
   {
     public Blockchain()
     {
-      this.Network = HookToNetwork._CurrentNetwork;
+      _network = NetworkInitializer.CurrentNetwork;
     }
-    public Blockchain(string[] PublicKeys, string Group, string Name, BlockchainType Type, BlockSynchronization SynchronizationType, bool AcceptBodySignature, int MaxBlockLenght = 2048, double DaysExpiredAfterInactivity = 30)
+
+    public Blockchain(string[] publicKeys, string @group, string name, BlockchainType type,
+      BlockSynchronization synchronizationType, bool acceptBodySignature, int maxBlockLenght = 2048,
+      double daysExpiredAfterInactivity = 30)
     {
-      this.Network = HookToNetwork._CurrentNetwork;
-      this.PublicKeys = PublicKeys;
-      this.Group = Group;
-      this.Name = Name;
-      this.Type = Type;
-      this.SynchronizationType = SynchronizationType;
-      this.AcceptBodySignature = AcceptBodySignature;
-      this.MaxBlockLenght = MaxBlockLenght;
-      this.ExpiredAfterInactivity = TimeSpan.FromDays(DaysExpiredAfterInactivity);
+      _network = NetworkInitializer.CurrentNetwork;
+      PublicKeys = publicKeys;
+      Group = @group;
+      Name = name;
+      Type = type;
+      SynchronizationType = synchronizationType;
+      AcceptBodySignature = acceptBodySignature;
+      MaxBlockLenght = maxBlockLenght;
+      ExpiredAfterInactivity = TimeSpan.FromDays(daysExpiredAfterInactivity);
     }
-    public Blockchain(string Group, string Name, BlockchainType Type, BlockSynchronization SynchronizationType, bool AcceptBodySignature, int MaxBlockLenght = 2048, double DaysExpiredAfterInactivity = 30)
+
+    public Blockchain(string @group, string name, BlockchainType type, BlockSynchronization synchronizationType,
+      bool acceptBodySignature, int maxBlockLenght = 2048, double daysExpiredAfterInactivity = 30)
     {
-      this.Network = HookToNetwork._CurrentNetwork;
-      this.Group = Group;
-      this.Name = Name;
-      this.Type = Type;
-      this.SynchronizationType = SynchronizationType;
-      this.AcceptBodySignature = AcceptBodySignature;
-      this.MaxBlockLenght = MaxBlockLenght;
-      this.ExpiredAfterInactivity = TimeSpan.FromDays(DaysExpiredAfterInactivity);
+      _network = NetworkInitializer.CurrentNetwork;
+      Group = @group;
+      Name = name;
+      Type = type;
+      SynchronizationType = synchronizationType;
+      AcceptBodySignature = acceptBodySignature;
+      MaxBlockLenght = maxBlockLenght;
+      ExpiredAfterInactivity = TimeSpan.FromDays(daysExpiredAfterInactivity);
     }
-    private Network Network = null;
+
+    private readonly Network _network;
+
     public void Save()
     {
-      if ((!System.IO.Directory.Exists(Directory())))
+      if (!System.IO.Directory.Exists(Directory()))
         System.IO.Directory.CreateDirectory(Directory());
-      using (System.IO.FileStream Stream = new System.IO.FileStream(PathNameFile() + ".info", System.IO.FileMode.Create))
+      using (var stream = new FileStream(PathNameFile() + ".info", FileMode.Create))
       {
-        System.Xml.Serialization.XmlSerializer xml = new System.Xml.Serialization.XmlSerializer(this.GetType());
-        System.Xml.Serialization.XmlSerializerNamespaces xmlns = new System.Xml.Serialization.XmlSerializerNamespaces();
+        var xml = new XmlSerializer(GetType());
+        var xmlns = new XmlSerializerNamespaces();
         xmlns.Add(string.Empty, string.Empty);
-        xml.Serialize(Stream, this, xmlns);
+        xml.Serialize(stream, this, xmlns);
       }
     }
 
-    public static Blockchain Load(string Group, string Name)
+    public static Blockchain Load(string @group, string name)
     {
       try
       {
-        string File = PathNameFile(HookToNetwork.CurrentNetwork, Group, Name) + ".info";
-        Blockchain Value;
-        if (System.IO.File.Exists(File))
+        var file = PathNameFile(NetworkInitializer.CurrentNetwork, @group, name) + ".info";
+        Blockchain value;
+        if (File.Exists(file))
         {
-          using (System.IO.FileStream Stream = new System.IO.FileStream(File, System.IO.FileMode.Open, System.IO.FileAccess.Read))
+          using (var stream = new FileStream(file, FileMode.Open, FileAccess.Read))
           {
-            System.Xml.Serialization.XmlSerializer XML = new System.Xml.Serialization.XmlSerializer(typeof(Blockchain));
-            Value = (Blockchain)XML.Deserialize(Stream);
+            var xml = new XmlSerializer(typeof(Blockchain));
+            value = (Blockchain)xml.Deserialize(stream);
           }
-          return Value;
+
+          return value;
         }
       }
       catch (Exception ex)
       {
+        Debug.Print(ex.Message);
+        Debugger.Break();
       }
+
       return null;
     }
+
     public bool AcceptBodySignature;
-    public @TimeSpan ExpiredAfterInactivity;
+    public TimeSpan ExpiredAfterInactivity;
+
     public string PublicKey
     {
-      set { PublicKeys = new string[1] { value }; }
+      set => PublicKeys = new string[1] { value };
     }
+
     /// <summary>
-    /// List of private key authorized to sign the block:
-    /// If is not null then all block Checksum are signed with one of this private key  
+    ///   List of private key authorized to sign the block:
+    ///   If is not null then all block Checksum are signed with one of this private key
     /// </summary>
     public string[] PublicKeys;
+
     public string Group;
     public string Name;
+
     /// <summary>
-    /// How the blocks will be synchronized on the blockchain
+    ///   How the blocks will be synchronized on the blockchain
     /// </summary>
     public BlockSynchronization SynchronizationType;
+
     /// <summary>
-    /// If you use the AddInLocalAndSync mode, make sure that no blocks are added simultaneously.
-    /// If you use SendToTheNetworkBuffer mode, the network will add blocks to the blockchain.
+    ///   If you use the AddInLocalAndSync mode, make sure that no blocks are added simultaneously.
+    ///   If you use SendToTheNetworkBuffer mode, the network will add blocks to the blockchain.
     /// </summary>
-    public enum BlockSynchronization { AddInLocalAndSync, SendToTheNetworkBuffer }
+    public enum BlockSynchronization
+    {
+      AddInLocalAndSync,
+      SendToTheNetworkBuffer
+    }
+
     public BlockchainType Type;
+
     public enum BlockchainType
     {
       LineOfText,
       Xml,
       Binary
     }
+
     public int MaxBlockLenght = 2048;
     private const int LenghtDataTrasmission = 1024 * 1024 * 20; //20 mega;
     private const string BlockSeparator = "\r\n";
     private const string FieldsSeparator = "\t";
+
     public long Length()
     {
-      if (System.IO.File.Exists(this.PathNameFile()))
-        return new System.IO.FileInfo(this.PathNameFile()).Length;
-      else
-        return 0;
+      return File.Exists(PathNameFile()) ? new FileInfo(PathNameFile()).Length : 0;
     }
-    public void Truncate(long Position)
+
+    public void Truncate(long position)
     {
-      using (System.IO.FileStream Stream = new System.IO.FileStream(this.PathNameFile(), System.IO.FileMode.Truncate))
+      using (var stream = new FileStream(PathNameFile(), FileMode.Truncate))
       {
-        Stream.SetLength(Position);
+        stream.SetLength(position);
       }
     }
-    internal static object GetVectorBlocks(string XmlVectorBlocks)
+
+    internal static object GetVectorBlocks(string xmlVectorBlocks)
     {
-      object Obj;
-      object ReturnObject;
-      Converter.XmlToObject(XmlVectorBlocks, typeof(Blockchain.VectorBlocks), out Obj);
-      Blockchain.VectorBlocks VectorBlocks = (Blockchain.VectorBlocks)Obj;
-      Blockchain.VectorBlocks ReturnVectorBlocks = new Blockchain.VectorBlocks();
-      if (UpdateLocalBlockchain(VectorBlocks, ReturnVectorBlocks))
-        ReturnObject = ReturnVectorBlocks;
+      object returnObject;
+      Converter.XmlToObject(xmlVectorBlocks, typeof(VectorBlocks), out var obj);
+      var vectorBlocks = (VectorBlocks)obj;
+      var returnVectorBlocks = new VectorBlocks();
+      if (UpdateLocalBlockchain(vectorBlocks, returnVectorBlocks))
+        returnObject = returnVectorBlocks;
       else
-        ReturnObject = "error: blockchain corrupted";
-      return ReturnObject;
+        returnObject = "error: blockchain corrupted";
+      return returnObject;
     }
 
     /// <summary>
-    /// This object is used to send or receive blocks
-    /// To receive the blocks from the remote server, set the RequestSendBlocksFromPosition parameter
-    /// The parameter Position indicates the position in the blockchain of the inserted vector blocks
-    /// Position is base 0
+    ///   This object is used to send or receive blocks
+    ///   To receive the blocks from the remote server, set the RequestSendBlocksFromPosition parameter
+    ///   The parameter Position indicates the position in the blockchain of the inserted vector blocks
+    ///   Position is base 0
     /// </summary>
     public class VectorBlocks
     {
       public VectorBlocks()
       {
       }
-      public VectorBlocks(Blockchain Blockchain)
+
+      public VectorBlocks(Blockchain blockchain)
       {
-        this.Blockchain = Blockchain;
+        Blockchain = blockchain;
       }
+
       public Blockchain Blockchain;
       public long Position = -1; //Base 0
+
       /// <summary>
-      /// Ask to receive blocks from the Base 0 position, if this value is -1 then there is no request
+      ///   Ask to receive blocks from the Base 0 position, if this value is -1 then there is no request
       /// </summary>
       public long RequestSendBlocksFromPosition = -1;
+
       public ReadBlocksResult ReadBlocksResult;
+
       public List<Block> Blocks
       {
         set
         {
-          List<string> List = new List<string>();
-          foreach (var Block in value)
-            List.Add(Block.Record);
-          Records = List.ToArray();
+          var list = new List<string>();
+          foreach (var block in value)
+            list.Add(block.Record);
+          Records = list.ToArray();
         }
       }
+
       public string[] Records;
     }
 
     /// <summary>
-    /// Synchronize the local blockchain, with the nodes remotely
+    ///   Synchronize the local blockchain, with the nodes remotely
     /// </summary>
     /// <returns>Returns False if the operation fails</returns>
     public bool RequestAnyNewBlocks()
     {
-      return Network.InteractWithRandomNode((Node Node) =>
-       {
-         try
-         {
-           long CurrentLength = this.Length();
-           VectorBlocks Vector = new VectorBlocks() { Blockchain = this, RequestSendBlocksFromPosition = CurrentLength };
-           VectorToNode(Vector, Node.Address, Node.MachineName);
-           return true;
-         }
-         catch (Exception)
-         {
-           return false;
-         }
-       });
+      return _network.InteractWithRandomNode(node =>
+      {
+        try
+        {
+          var currentLength = Length();
+          var vector = new VectorBlocks { Blockchain = this, RequestSendBlocksFromPosition = currentLength };
+          VectorToNode(vector, node.Address, node.MachineName);
+          return true;
+        }
+        catch (Exception ex)
+        {
+          Debug.Print(ex.Message);
+          Debugger.Break();
+          return false;
+        }
+      });
     }
-    private void VectorToNode(VectorBlocks Vector, string Server, string MachineName)
+
+    private void VectorToNode(VectorBlocks vector, string server, string machineName)
     {
-      VectorBlocks ReturnVector;
+      VectorBlocks returnVector;
       do
       {
-        ReturnVector = null;
-        string ReturnObjectName = null;
-        string ReturnXmlObject = null;
-        string ReturnFromUser = null;
-        object Obj = null;
-        var XmlObjectVector = Network.Comunication.SendObjectSync((object)Vector, Server, null, MachineName);
-        if (!string.IsNullOrEmpty(XmlObjectVector))
+        returnVector = null;
+        object obj;
+        var xmlObjectVector = _network.Comunication.SendObjectSync(vector, server, null, machineName);
+        if (string.IsNullOrEmpty(xmlObjectVector)) continue;
+        Converter.XmlToObject(xmlObjectVector, typeof(Comunication.ObjectVector), out var returmObj);
+        var objVector = (Comunication.ObjectVector)returmObj;
+        var returnObjectName = objVector.ObjectName;
+        var returnXmlObject = objVector.XmlObject;
+        if (returnObjectName == "VectorBlocks")
         {
-          object ReturmObj;
-          Converter.XmlToObject(XmlObjectVector, typeof(ComunicationClass.ObjectVector), out ReturmObj);
-          ComunicationClass.ObjectVector ObjVector = (ComunicationClass.ObjectVector)ReturmObj;
-          ReturnObjectName = ObjVector.ObjectName;
-          ReturnXmlObject = ObjVector.XmlObject;
-          ReturnFromUser = ObjVector.FromUser;
-          if (ReturnObjectName == "VectorBlocks")
+          Converter.XmlToObject(returnXmlObject, typeof(VectorBlocks), out obj);
+          returnVector = (VectorBlocks)obj;
+          if (returnVector.Blockchain == null)
+            returnVector.Blockchain = vector.Blockchain;
+          if (returnVector.RequestSendBlocksFromPosition != -1)
           {
-            Converter.XmlToObject(ReturnXmlObject, typeof(VectorBlocks), out Obj);
-            ReturnVector = (VectorBlocks)Obj;
-            if (ReturnVector.Blockchain == null)
-              ReturnVector.Blockchain = Vector.Blockchain;
-            if (ReturnVector.RequestSendBlocksFromPosition != -1)
+            var blocksToSend = GetBlocks(returnVector.RequestSendBlocksFromPosition, out var readBlocksResult);
+            var vectorToSend = new VectorBlocks
             {
-              var BlocksToSend = GetBlocks(ReturnVector.RequestSendBlocksFromPosition, out ReadBlocksResult ReadBlocksResult);
-              VectorBlocks VectorToSend = new VectorBlocks() { Blockchain = this, Blocks = BlocksToSend, Position = ReturnVector.RequestSendBlocksFromPosition, ReadBlocksResult = ReadBlocksResult };
-              VectorToNode(VectorToSend, Server, MachineName);
-            }
-            else
-            {
-              Vector = new VectorBlocks(); //Used to repeat the operation in case of partial reception of blocks
-              UpdateLocalBlockchain(ReturnVector, Vector);
-            }
+              Blockchain = this,
+              Blocks = blocksToSend,
+              Position = returnVector.RequestSendBlocksFromPosition,
+              ReadBlocksResult = readBlocksResult
+            };
+            VectorToNode(vectorToSend, server, machineName);
           }
           else
           {
-            ReturnObjectName = "String";
-            Converter.XmlToObject(ReturnXmlObject, typeof(string), out Obj);
-            string ErrorMessage = System.Convert.ToString(Obj);
-            Log("BlockchainError", 1000, ErrorMessage);
+            vector = new VectorBlocks(); //Used to repeat the operation in case of partial reception of blocks
+            UpdateLocalBlockchain(returnVector, vector);
           }
         }
-      } while (ReturnVector != null && ReturnVector.ReadBlocksResult == ReadBlocksResult.Partial);
-    }
-    /// <summary>
-    /// Send a locally block it to the nodes of the network
-    /// </summary>
-    /// <param name="Block">The block</param>
-    /// <returns>Returns False if the operation fails</returns>
-    public bool SendBlockToNetwork(Block Block)
-    {
-      return SyncBlocksToNetwork(new List<Block>() { Block }, -1);
-    }
-    /// <summary>
-    /// Send locally blocks it to the nodes of the network
-    /// </summary>
-    /// <param name="Blocks">The blocks</param>
-    /// <returns>Returns False if the operation fails</returns>
-    public bool SendBlocksToNetwork(List<Block> Blocks)
-    {
-      return SyncBlocksToNetwork(Blocks, -1);
-    }
-    /// <summary>
-    /// Synchronize a block written locally and transmit it to the nodes of the network
-    /// </summary>
-    /// <param name="Block">The block</param>
-    /// <param name="Position">Base 0 position</param>
-    /// <returns>Returns False if the operation fails</returns>
-    public bool SyncBlockToNetwork(Block Block, long Position)
-    {
-      return SyncBlocksToNetwork(new List<Block>() { Block }, Position);
-    }
-    /// <summary>
-    /// Synchronize the blocks written locally and transmit it to the nodes of the network
-    /// </summary>
-    /// <param name="Blocks">The blocks</param>
-    /// <param name="Position">Base 0 position</param>
-    /// <returns>Returns False if the operation fails</returns>
-    public bool SyncBlocksToNetwork(List<Block> Blocks, long Position)
-    {
-      return Network.InteractWithRandomNode((Node Node) =>
-       {
-         try
-         {
-           VectorBlocks Vector = new VectorBlocks() { Blockchain = this, Blocks = Blocks, Position = Position };
-           if (Node.MachineName != Network.MachineName)
-             VectorToNode(Vector, Node.Address, Node.MachineName);
-           return true;
-         }
-         catch (Exception)
-         {
-           return false;
-         }
-       });
-    }
-
-    /// <summary>
-    /// Add to the local blockchain the blocks received from the server
-    /// This function is normally called by the Page.Load event when a Vector is received remotely
-    /// </summary>
-    /// <param name="Vector">Parameter that is used to send blocks or to request blocks</param>
-    /// <param name="SetReturnVector">This parameter returns a vector containing possible blocks to be synchronized on the local blockchain</param>
-    /// <returns>Returns False if the operation fails</returns>
-    public static bool UpdateLocalBlockchain(VectorBlocks Vector, VectorBlocks SetReturnVector = null)
-    {
-
-      Blockchain Blockchain = Vector.Blockchain;
-      long CurrentLength = Blockchain.Length();
-      if (CurrentLength == 0)
-        Blockchain.Save();
-
-      if (Vector.RequestSendBlocksFromPosition != -1 && SetReturnVector != null)
-      {
-        if (CurrentLength > Vector.RequestSendBlocksFromPosition)
+        else
         {
-          SetReturnVector.Blockchain = Blockchain;
-          SetReturnVector.Blocks = Blockchain.GetBlocks(Vector.RequestSendBlocksFromPosition, out SetReturnVector.ReadBlocksResult);
-          SetReturnVector.Position = Vector.RequestSendBlocksFromPosition;
+          Converter.XmlToObject(returnXmlObject, typeof(string), out obj);
+          var errorMessage = Convert.ToString(obj);
+          Utility.Log("BlockchainError", errorMessage);
         }
-        else if (CurrentLength < Vector.RequestSendBlocksFromPosition)
+      } while (returnVector != null && returnVector.ReadBlocksResult == ReadBlocksResult.Partial);
+    }
+
+    /// <summary>
+    ///   Send a locally block it to the nodes of the network
+    /// </summary>
+    /// <param name="block">The block</param>
+    /// <returns>Returns False if the operation fails</returns>
+    public bool SendBlockToNetwork(Block block)
+    {
+      return SyncBlocksToNetwork(new List<Block> { block }, -1);
+    }
+
+    /// <summary>
+    ///   Send locally blocks it to the nodes of the network
+    /// </summary>
+    /// <param name="blocks">The blocks</param>
+    /// <returns>Returns False if the operation fails</returns>
+    public bool SendBlocksToNetwork(List<Block> blocks)
+    {
+      return SyncBlocksToNetwork(blocks, -1);
+    }
+
+    /// <summary>
+    ///   Synchronize a block written locally and transmit it to the nodes of the network
+    /// </summary>
+    /// <param name="block">The block</param>
+    /// <param name="position">Base 0 position</param>
+    /// <returns>Returns False if the operation fails</returns>
+    public bool SyncBlockToNetwork(Block block, long position)
+    {
+      return SyncBlocksToNetwork(new List<Block> { block }, position);
+    }
+
+    /// <summary>
+    ///   Synchronize the blocks written locally and transmit it to the nodes of the network
+    /// </summary>
+    /// <param name="blocks">The blocks</param>
+    /// <param name="position">Base 0 position</param>
+    /// <returns>Returns False if the operation fails</returns>
+    public bool SyncBlocksToNetwork(List<Block> blocks, long position)
+    {
+      return _network.InteractWithRandomNode(node =>
+      {
+        try
         {
-          SetReturnVector.Blockchain = Blockchain;
-          SetReturnVector.RequestSendBlocksFromPosition = CurrentLength;
-          //qui non mi ricordo cosa stavo facendo, probabilmente devo continuare da qui
-          //VectorToNode()
+          var vector = new VectorBlocks { Blockchain = this, Blocks = blocks, Position = position };
+          if (node.MachineName != _network.MachineName)
+            VectorToNode(vector, node.Address, node.MachineName);
+          return true;
+        }
+        catch (Exception ex)
+        {
+          Debug.Print(ex.Message);
+          Debugger.Break();
+          return false;
+        }
+      });
+    }
+
+    /// <summary>
+    ///   Add to the local blockchain the blocks received from the server
+    ///   This function is normally called by the Page.Load event when a Vector is received remotely
+    /// </summary>
+    /// <param name="vector">Parameter that is used to send blocks or to request blocks</param>
+    /// <param name="setReturnVector">
+    ///   This parameter returns a vector containing possible blocks to be synchronized on the
+    ///   local blockchain
+    /// </param>
+    /// <returns>Returns False if the operation fails</returns>
+    public static bool UpdateLocalBlockchain(VectorBlocks vector, VectorBlocks setReturnVector = null)
+    {
+      var blockchain = vector.Blockchain;
+      var currentLength = blockchain.Length();
+      if (currentLength == 0)
+        blockchain.Save();
+
+      if (vector.RequestSendBlocksFromPosition != -1 && setReturnVector != null)
+      {
+        if (currentLength > vector.RequestSendBlocksFromPosition)
+        {
+          setReturnVector.Blockchain = blockchain;
+          setReturnVector.Blocks =
+            blockchain.GetBlocks(vector.RequestSendBlocksFromPosition, out setReturnVector.ReadBlocksResult);
+          setReturnVector.Position = vector.RequestSendBlocksFromPosition;
+        }
+        else if (currentLength < vector.RequestSendBlocksFromPosition)
+        {
+          setReturnVector.Blockchain = blockchain;
+          setReturnVector.RequestSendBlocksFromPosition = currentLength;
         }
       }
-      else if (Vector.Position != -1)
+      else if (vector.Position != -1)
       {
-        if (CurrentLength > Vector.Position)
+        if (currentLength > vector.Position)
         {
-          if (SetReturnVector != null)
+          if (setReturnVector != null)
           {
-            SetReturnVector.Blockchain = Blockchain;
-            SetReturnVector.Blocks = Blockchain.GetBlocks(Vector.Position, out SetReturnVector.ReadBlocksResult);
-            SetReturnVector.Position = Vector.Position;
+            setReturnVector.Blockchain = blockchain;
+            setReturnVector.Blocks = blockchain.GetBlocks(vector.Position, out setReturnVector.ReadBlocksResult);
+            setReturnVector.Position = vector.Position;
           }
           else
           {
-            Blockchain.Truncate(Vector.Position);
-            CurrentLength = Vector.Position;
+            blockchain.Truncate(vector.Position);
+            currentLength = vector.Position;
           }
         }
 
-        if (CurrentLength == Vector.Position)
+        if (currentLength == vector.Position)
         {
-          foreach (String Record in Vector.Records)
-          {
-            if (!Blockchain.AddRecord(Record))
-              // Error in blockchain
-              return false;
-          }
-          if (Vector.ReadBlocksResult == ReadBlocksResult.Partial)
-            //You have received only a partial part of blocks, you have to ask others who are missing
-            if (SetReturnVector != null)
-            {
-              SetReturnVector.Blockchain = Blockchain;
-              SetReturnVector.RequestSendBlocksFromPosition = Blockchain.Length();
-            }
+          if (vector.Records.Any(record => !blockchain.AddRecord(record)))
+            return false;
+          if (vector.ReadBlocksResult != ReadBlocksResult.Partial) return true;
+          if (setReturnVector == null) return true;
+          setReturnVector.Blockchain = blockchain;
+          setReturnVector.RequestSendBlocksFromPosition = blockchain.Length();
         }
-        else if (CurrentLength < Vector.Position)
+        else if (currentLength < vector.Position)
         {
           // Send a request of th missed blocks 
-          if (SetReturnVector != null)
-          {
-            SetReturnVector.Blockchain = Blockchain;
-            SetReturnVector.RequestSendBlocksFromPosition = CurrentLength;
-          }
+          if (setReturnVector == null) return true;
+          setReturnVector.Blockchain = blockchain;
+          setReturnVector.RequestSendBlocksFromPosition = currentLength;
         }
       }
+
       return true;
     }
+
     public class Block
     {
       private Block()
@@ -451,272 +505,276 @@ namespace BlockchainManager
       }
 
       /// <summary>
-      /// Instantiate a block from a record of data written on the blockchain.
-      /// It is used to read the blockchain.
+      ///   Instantiate a block from a record of data written on the blockchain.
+      ///   It is used to read the blockchain.
       /// </summary>
-      /// <param name="PreviousBlock">The previous block</param>
-      /// <param name="Blockchain">The blockchain</param>
-      /// <param name="Record">The record is the entire data package that represents the block, includes the possible signature and checksum</param>
-      public Block(Block PreviousBlock, Blockchain Blockchain, string Record)
+      /// <param name="previousBlock">The previous block</param>
+      /// <param name="blockchain">The blockchain</param>
+      /// <param name="record">
+      ///   The record is the entire data package that represents the block, includes the possible signature
+      ///   and checksum
+      /// </param>
+      public Block(Block previousBlock, Blockchain blockchain, string record)
       {
-        this.PreviousBlock = PreviousBlock;
-        this.Blockchain = Blockchain;
-        this.Record = Record;
+        _previousBlock = previousBlock;
+        _blockchain = blockchain;
+        Record = record;
       }
+
       /// <summary>
-      /// Create a block that will be immediately added to the blockchain.
-      /// If the blockchain has set a public key, then the block will not be added now, but will need to be added later once the signature is added
+      ///   Create a block that will be immediately added to the blockchain.
+      ///   If the blockchain has set a public key, then the block will not be added now, but will need to be added later once
+      ///   the signature is added
       /// </summary>
-      /// <param name="Blockchain">The Blockchain used</param>
-      /// <param name="Data">The data to be included in the block</param>
-      public Block(Blockchain Blockchain, byte[] Data)
+      /// <param name="blockchain">The Blockchain used</param>
+      /// <param name="data">The data to be included in the block</param>
+      public Block(Blockchain blockchain, byte[] data)
       {
-        _Block(Blockchain, Convert.ToBase64String(Data));
+        _Block(blockchain, Convert.ToBase64String(data));
       }
+
       /// <summary>
-      /// Create a block that will be immediately added to the blockchain.
-      /// If the blockchain has set a public key, then the block will not be added now, but will need to be added later once the signature is added
+      ///   Create a block that will be immediately added to the blockchain.
+      ///   If the blockchain has set a public key, then the block will not be added now, but will need to be added later once
+      ///   the signature is added
       /// </summary>
-      /// <param name="Blockchain">The Blockchain used</param>
-      /// <param name="Data">The data to be included in the block</param>
-      public Block(Blockchain Blockchain, string Data)
+      /// <param name="blockchain">The Blockchain used</param>
+      /// <param name="data">The data to be included in the block</param>
+      public Block(Blockchain blockchain, string data)
       {
-        switch (Blockchain.Type)
+        switch (blockchain.Type)
         {
           case BlockchainType.Xml:
-            Data.Replace("\n", "").Replace("\r", "");
+            data = data.Replace("\n", "").Replace("\r", "");
             break;
           case BlockchainType.Binary:
-            throw new System.InvalidOperationException("Invalid method with the blockchain in binary mode");
+            throw new InvalidOperationException("Invalid method with the blockchain in binary mode");
+          case BlockchainType.LineOfText:
+            break;
+          default:
+            throw new ArgumentOutOfRangeException();
         }
-        _Block(Blockchain, Data);
+
+        _Block(blockchain, data);
       }
 
       /// <summary>
-      /// Use this method only for data that exits from shared buffer
+      ///   Use this method only for data that exits from shared buffer
       /// </summary>
-      /// <param name="Blockchain"></param>
-      /// <param name="Data"></param>
-      /// <param name="TimeStamp">The timestam assigned by the buffer</param>
-      internal Block(Blockchain Blockchain, string Data, DateTime TimeStamp)
+      /// <param name="blockchain"></param>
+      /// <param name="data"></param>
+      /// <param name="timestamp">The timestam assigned by the buffer</param>
+      internal Block(Blockchain blockchain, string data, DateTime timestamp)
       {
-        _Block(Blockchain, Data, Timestamp, true);
+        _Block(blockchain, data, timestamp, true);
       }
 
       /// <summary>
-      /// Set a block that will be immediately added to the blockchain.
-      /// If the blockchain has set a public key, then the block will not be added now, but will need to be added later once the signature is added
+      ///   Set a block that will be immediately added to the blockchain.
+      ///   If the blockchain has set a public key, then the block will not be added now, but will need to be added later once
+      ///   the signature is added
       /// </summary>
-      /// <param name="Blockchain">The Blockchain used</param>
-      /// <param name="Data">The data to be included in the block</param>
-      private void _Block(Blockchain Blockchain, string Data, DateTime TimeStamp = default(DateTime), bool Local = false)
+      /// <param name="blockchain">The Blockchain used</param>
+      /// <param name="data">The data to be included in the block</param>
+      /// <param name="timestamp">The timestamp</param>
+      /// <param name="local">Add block in local</param>
+      private void _Block(Blockchain blockchain, string data, DateTime timestamp = default(DateTime),
+        bool local = false)
       {
-        this.Blockchain = Blockchain;
-        this._Data = Data;
-        if (TimeStamp != default(DateTime))
-          _Timestamp = TimeStamp;
-        else
-          _Timestamp = DateTime.Now.ToUniversalTime();
-        if (Local == true || Blockchain.SynchronizationType == BlockSynchronization.AddInLocalAndSync)
+        _blockchain = blockchain;
+        _data = data;
+        Timestamp = timestamp != default(DateTime) ? timestamp : DateTime.Now.ToUniversalTime();
+        if (local || blockchain.SynchronizationType == BlockSynchronization.AddInLocalAndSync)
         {
-          PreviousBlock = Blockchain.GetLastBlock();
-          _Checksum = CalculateChecksum();
-          if (!Blockchain.AcceptBodySignature)
-          {
-            if (Blockchain.PublicKeys == null)
-              AddToBlockchain();
-          }
+          _previousBlock = blockchain.GetLastBlock();
+          Checksum = CalculateChecksum();
+          if (blockchain.AcceptBodySignature) return;
+          if (blockchain.PublicKeys == null)
+            AddToBlockchain();
         }
         else
         {
-          DataVector Vector = new DataVector();
-          Blockchain.Network.BufferManager.AddToSaredBuffer(Vector);
+          var vector = new DataVector { Data = data, Blockchain = blockchain };
+          blockchain._network.AddToSaredBuffer(vector);
           //Blockchain.SendBlockToNetwork(this);
         }
       }
+
       /// <summary>
-      /// This element is used to send the data inserted in the block to the shared buffer
+      ///   This element is used to send the data inserted in the block to the shared buffer
       /// </summary>
       public class DataVector
       {
         public Blockchain Blockchain;
-        public String Data;
+        public string Data;
       }
-      private Block PreviousBlock;
-      public bool AddBlockSignature(byte[] SignedChecksum)
+
+      private Block _previousBlock;
+
+      public bool AddBlockSignature(byte[] signedChecksum)
       {
-        _Checksum = Convert.ToBase64String(SignedChecksum);
-        bool Result = CheckBlockSignature();
-        if (Result)
+        Checksum = Convert.ToBase64String(signedChecksum);
+        var result = CheckBlockSignature();
+        if (result)
           AddToBlockchain();
-        return Result;
+        return result;
       }
+
       public bool CheckBlockSignature()
       {
         try
         {
-          foreach (var PublicKey in Blockchain.PublicKeys)
+          foreach (var publicKey in _blockchain.PublicKeys)
           {
-            System.Security.Cryptography.RSACryptoServiceProvider RSAalg = new System.Security.Cryptography.RSACryptoServiceProvider();
-            RSAalg.ImportCspBlob(Convert.FromBase64String(PublicKey));
-            if (RSAalg.VerifyHash(CalculateChecksumBytes(), System.Security.Cryptography.CryptoConfig.MapNameToOID("SHA256"), ChecksumBytes)) ;
-            return true;
+            var rsAalg = new RSACryptoServiceProvider();
+            rsAalg.ImportCspBlob(Convert.FromBase64String(publicKey));
+            if (rsAalg.VerifyHash(CalculateChecksumBytes(), CryptoConfig.MapNameToOID("SHA256"), ChecksumBytes))
+              return true;
           }
+
           return false;
         }
-        catch (Exception e)
+        catch (Exception ex)
         {
-          Console.WriteLine(e.Message);
+          Debug.Print(ex.Message);
+          Debugger.Break();
           return false;
         }
       }
+
       private byte[] BaseChecksum()
       {
-        string PreviousChecksum = null;
-        if (PreviousBlock != null)
-          PreviousChecksum = PreviousBlock.Checksum;
-        string BaseComputation = BodyRecord(true);
-        return Encoding.Unicode.GetBytes(PreviousChecksum + BaseComputation);
+        string previousChecksum = null;
+        if (_previousBlock != null)
+          previousChecksum = _previousBlock.Checksum;
+        var baseComputation = BodyRecord(true);
+        return Encoding.Unicode.GetBytes(previousChecksum + baseComputation);
       }
+
       public byte[] CalculateChecksumBytes()
       {
-        System.Security.Cryptography.HashAlgorithm hashType = new System.Security.Cryptography.SHA256Managed();
-        byte[] hashBytes = hashType.ComputeHash(BaseChecksum());
+        HashAlgorithm hashType = new SHA256Managed();
+        var hashBytes = hashType.ComputeHash(BaseChecksum());
         return hashBytes;
       }
+
       private string CalculateChecksum()
       {
         return Convert.ToBase64String(CalculateChecksumBytes());
       }
+
       public bool IsValid()
       {
         if (CheckBodySignatures())
         {
-          if (Blockchain.PublicKeys != null)
-            return CheckBlockSignature();
-          else
-            return _Checksum == CalculateChecksum();
+          return _blockchain.PublicKeys != null ? CheckBlockSignature() : Checksum == CalculateChecksum();
         }
+
         return false;
       }
-      private Blockchain Blockchain;
-      public bool AddToBlockchain(Blockchain Blockchain = null)
+
+      private Blockchain _blockchain;
+
+      public bool AddToBlockchain(Blockchain blockchain = null)
       {
-        if (this.Blockchain == null)
-          this.Blockchain = Blockchain;
-        return this.Blockchain.AddBlock(this);
+        if (_blockchain == null)
+          _blockchain = blockchain;
+        return _blockchain != null && _blockchain.AddBlock(this);
       }
+
       internal bool AddedToBlockchain;
-      private string _Data;
+      private string _data;
+
       public string Data
       {
         get
         {
-          if (Blockchain.Type == BlockchainType.Binary)
-            throw new System.InvalidOperationException("Invalid method with the blockchain in binary mode");
-          return _Data;
+          if (_blockchain.Type == BlockchainType.Binary)
+            throw new InvalidOperationException("Invalid method with the blockchain in binary mode");
+          return _data;
         }
       }
+
       public byte[] DataByteArray
       {
         get
         {
-          if (Blockchain.Type != BlockchainType.Binary)
-            throw new System.InvalidOperationException("Invalid method with the blockchain is not in binary mode");
-          return Convert.FromBase64String(_Data);
+          if (_blockchain.Type != BlockchainType.Binary)
+            throw new InvalidOperationException("Invalid method with the blockchain is not in binary mode");
+          return Convert.FromBase64String(_data);
         }
       }
-      private DateTime _Timestamp;
-      public DateTime Timestamp
-      {
-        get
-        {
-          return _Timestamp;
-        }
-      }
-      private string _Checksum;
-      public string Checksum
-      {
-        get
-        {
-          return _Checksum;
-        }
-      }
-      public byte[] ChecksumBytes
-      {
-        get
-        {
-          return Convert.FromBase64String(_Checksum);
-        }
-      }
-      private string _BodySignatures;
+
+      public DateTime Timestamp { get; private set; }
+      public string Checksum { get; private set; }
+
+      public byte[] ChecksumBytes => Convert.FromBase64String(Checksum);
+      private string _bodySignatures;
+
       /// <summary>
-      /// Returns a dictionary indexed with public keys, and the values of the block signatures
+      ///   Returns a dictionary indexed with public keys, and the values of the block signatures
       /// </summary>
       /// <returns></returns>
       public Dictionary<string, string> GetAllBodySignature()
       {
-        Dictionary<string, string> Result = null;
-        if (!string.IsNullOrEmpty(_BodySignatures))
+        if (string.IsNullOrEmpty(_bodySignatures)) return null;
+        var result = new Dictionary<string, string>();
+        var parts = _bodySignatures.Split(' ');
+        string publicKey = null;
+        var flag = false;
+        foreach (var part in parts)
         {
-          Result = new Dictionary<string, string>();
-          string[] Parts = _BodySignatures.Split(' ');
-          string PublicKey = null;
-          string Signature;
-          bool Flag = false;
-          foreach (string Part in Parts)
+          if (flag)
           {
-            if (Flag)
-            {
-              Signature = Part;
-              Result.Add(PublicKey, Signature);
-            }
-            else
-              PublicKey = Part;
-            Flag = !Flag;
+            var signature = part;
+            result.Add(publicKey, signature);
           }
+          else
+          {
+            publicKey = part;
+          }
+
+          flag = !flag;
         }
-        return Result;
+
+        return result;
       }
-      public bool AddBodySignature(string PublicKey, byte[] Signature, bool AddNowToBlockchain)
+
+      public bool AddBodySignature(string publicKey, byte[] signature, bool addNowToBlockchain)
       {
-        if (Blockchain.AcceptBodySignature)
+        if (_blockchain.AcceptBodySignature)
         {
-          if (CheckBodySignature(PublicKey, Signature))
-          {
-            if (!string.IsNullOrEmpty(_BodySignatures))
-              _BodySignatures += " ";
-            _BodySignatures += PublicKey + " " + Convert.ToBase64String(Signature);
-            _Checksum = CalculateChecksum();
-            if (AddNowToBlockchain)
-              return this.AddToBlockchain();
-            return true;
-          }
+          if (!CheckBodySignature(publicKey, signature)) return false;
+          if (!string.IsNullOrEmpty(_bodySignatures))
+            _bodySignatures += " ";
+          _bodySignatures += publicKey + " " + Convert.ToBase64String(signature);
+          Checksum = CalculateChecksum();
+          return !addNowToBlockchain || AddToBlockchain();
         }
         else
-          throw new System.Exception("This blockchain does not allow to add signatures to the body");
-        return false;
+        {
+          throw new Exception("This blockchain does not allow to add signatures to the body");
+        }
+        //return false;
       }
+
       public bool CheckBodySignatures()
       {
-        Dictionary<string, string> Signatures = GetAllBodySignature();
-        if (Signatures != null)
-        {
-          foreach (string PubKey in Signatures.Keys)
-          {
-            if (!CheckBodySignature(PubKey, Convert.FromBase64String(Signatures[PubKey])))
-              return false;
-          }
-        }
+        var signatures = GetAllBodySignature();
+        if (signatures == null) return true;
+        foreach (var pubKey in signatures.Keys)
+          if (!CheckBodySignature(pubKey, Convert.FromBase64String(signatures[pubKey])))
+            return false;
         return true;
       }
-      private bool CheckBodySignature(string PublicKey, byte[] Signature)
+
+      private bool CheckBodySignature(string publicKey, byte[] signature)
       {
         try
         {
-          System.Security.Cryptography.RSACryptoServiceProvider RSAalg = new System.Security.Cryptography.RSACryptoServiceProvider();
-          RSAalg.ImportCspBlob(Convert.FromBase64String(PublicKey));
-          return RSAalg.VerifyHash(HashBody(), System.Security.Cryptography.CryptoConfig.MapNameToOID("SHA256"), Signature);
+          var rsAalg = new RSACryptoServiceProvider();
+          rsAalg.ImportCspBlob(Convert.FromBase64String(publicKey));
+          return rsAalg.VerifyHash(HashBody(), CryptoConfig.MapNameToOID("SHA256"), signature);
         }
         catch (Exception e)
         {
@@ -724,241 +782,238 @@ namespace BlockchainManager
           return false;
         }
       }
+
       public byte[] HashBody()
       {
-        System.Security.Cryptography.HashAlgorithm hashType = new System.Security.Cryptography.SHA256Managed();
-        byte[] hashBytes = hashType.ComputeHash(Encoding.Unicode.GetBytes(BodyRecord(false)));
+        HashAlgorithm hashType = new SHA256Managed();
+        var hashBytes = hashType.ComputeHash(Encoding.Unicode.GetBytes(BodyRecord(false)));
         return hashBytes;
       }
-      private string BodyRecord(bool WithSigatures)
+
+      private string BodyRecord(bool withSigatures)
       {
-        var HexTimestamp = _Timestamp.Ticks.ToString("X");
-        string Signatures = null;
-        if (WithSigatures)
-        {
-          if (!string.IsNullOrEmpty(_BodySignatures))
-            Signatures = Blockchain.FieldsSeparator + _BodySignatures;
-        }
-        return _Data + Blockchain.FieldsSeparator + HexTimestamp + Signatures;
+        var hexTimestamp = Timestamp.Ticks.ToString("X");
+        if (!withSigatures) return _data + FieldsSeparator + hexTimestamp;
+        var signatures = string.IsNullOrEmpty(_bodySignatures) ? null : FieldsSeparator + _bodySignatures ;
+        return _data + FieldsSeparator + hexTimestamp + signatures;
       }
+
       protected internal string Record
       {
-        get
-        {
-          return BodyRecord(true) + Blockchain.FieldsSeparator + _Checksum;
-        }
+        get => BodyRecord(true) + FieldsSeparator + Checksum;
         set
         {
-          if (!string.IsNullOrEmpty(value))
-          {
-            // ===========PARTS==========================
-            // Data + Timestamp + (Signatures) + Checksum
-            // ==========================================
-            string[] Parts = value.Split(new string[] { Blockchain.FieldsSeparator }, StringSplitOptions.None);
-            //if (Blockchain.Type != BlockchainType.LineOfText)
-            //  _Data = Converter.Base64ToString(Parts[0]);
-            //else
-            _Data = Parts[0];
-            string DateHex = Parts[1];
-            _Timestamp = new DateTime(Convert.ToInt64(DateHex, 16));
-            if (Parts.Count() == 4)
-              _BodySignatures = Parts[2];
-            _Checksum = Parts.Last();
-          }
+          if (string.IsNullOrEmpty(value)) return;
+          // ===========PARTS==========================
+          // Data + Timestamp + (Signatures) + Checksum
+          // ==========================================
+          var parts = value.Split(new[] { FieldsSeparator }, StringSplitOptions.None);
+          //if (Blockchain.Type != BlockchainType.LineOfText)
+          //  _Data = Converter.Base64ToString(Parts[0]);
+          //else
+          _data = parts[0];
+          var dateHex = parts[1];
+          Timestamp = new DateTime(Convert.ToInt64(dateHex, 16));
+          if (parts.Count() == 4)
+            _bodySignatures = parts[2];
+          Checksum = parts.Last();
         }
       }
     }
-    private static string MapPath(string PathNameFile)
+
+    private static string MapPath(string pathNameFile)
     {
       //return System.IO.Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.ApplicationData), PathNameFile);
-      string Path = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-      return System.IO.Path.Combine(Path, PathNameFile);
+      var path = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+      return Path.Combine(path, pathNameFile);
+    }
 
-    }
-    private static string Directory(Network Network, string Group)
+    private static string Directory(Network network, string @group)
     {
-      return MapPath(System.IO.Path.Combine(Setup.Ambient.Repository, AbjustNameFile(Network.NetworkName), AbjustNameFile(Group)));
+      return MapPath(Path.Combine(Setup.Ambient.Repository, AbjustNameFile(network.NetworkName),
+        AbjustNameFile(@group)));
     }
+
     private string Directory()
     {
-      return Directory(Network, Group);
+      return Directory(_network, Group);
     }
-    private static string PathNameFile(Network Network, string Group, string Name)
+
+    private static string PathNameFile(Network network, string @group, string name)
     {
-      return System.IO.Path.Combine(Directory(Network, Group), AbjustNameFile(Name) + ".bloks");
+      return Path.Combine(Directory(network, @group), AbjustNameFile(name) + ".bloks");
     }
+
     private string PathNameFile()
     {
-      return System.IO.Path.Combine(Directory(), AbjustNameFile(Name) + ".bloks");
+      return Path.Combine(Directory(), AbjustNameFile(Name) + ".bloks");
     }
-    private static string AbjustNameFile(string FileName)
+
+    private static string AbjustNameFile(string fileName)
     {
-      string Result = "";
-      foreach (char c in FileName)
-      {
+      var result = "";
+      foreach (var c in fileName)
         if (char.IsLetterOrDigit(c) || "+-=._".Contains(c))
-          Result += c;
+          result += c;
         else
-        {
-          Result += "(" + String.Format("{0:X}", Convert.ToInt32(c)) + ")";
-        }
-      }
-      return Result;
+          result += "(" + string.Format("{0:X}", Convert.ToInt32(c)) + ")";
+      return result;
     }
+
     public Block GetLastBlock()
     {
       return GetPreviousBlock(-1);
     }
-    /// <summary>
-    /// Returns the block preceding the position on file Position, the parameter Position is base 0
-    /// </summary>
-    /// <param name="Position">File position base 0, if Position is -1 then return the last block in blockchain</param>
-    /// <returns></returns>
-    public Block GetPreviousBlock(long Position)
-    {
-      Block Output = null;
-      string File = PathNameFile();
-      if (System.IO.File.Exists(File))
-      {
-        string Data = null;
-        System.IO.StreamReader Stream = null;
-        int NTryError = 0;
-        try
-        {
-          Stream = new System.IO.StreamReader(File);
-          if (Position == -1)
-            Position = Stream.BaseStream.Length;
-          long StartRead = Position - (long)MaxBlockLenght;
-          if (StartRead < 0)
-            StartRead = 0;
-          Stream.BaseStream.Position = StartRead;
 
-          int Len = (int)(Position - StartRead);
-          char[] Buffer = new char[Len];
-          Len = Stream.Read(Buffer, 0, Len);
-          Data = new string(Buffer);
-        }
-        catch (Exception ex)
+    /// <summary>
+    ///   Returns the block preceding the position on file Position, the parameter Position is base 0
+    /// </summary>
+    /// <param name="position">File position base 0, if Position is -1 then return the last block in blockchain</param>
+    /// <returns></returns>
+    public Block GetPreviousBlock(long position)
+    {
+      var file = PathNameFile();
+      if (!File.Exists(file)) return null;
+      string data = null;
+      StreamReader stream = null;
+      var nTryError = 0;
+      try
+      {
+        stream = new StreamReader(file);
+        if (position == -1)
+          position = stream.BaseStream.Length;
+        var startRead = position - MaxBlockLenght;
+        if (startRead < 0)
+          startRead = 0;
+        stream.BaseStream.Position = startRead;
+
+        var len = (int)(position - startRead);
+        var buffer = new char[len];
+        stream.Read(buffer, 0, len);
+        data = new string(buffer);
+      }
+      catch (Exception ex)
+      {
+        Debug.Print(ex.Message);
+        Debugger.Break();
+        nTryError += 1;
+        Thread.Sleep(500);
+      }
+      finally
+      {
+        if (stream != null)
         {
-          NTryError += 1;
-          System.Threading.Thread.Sleep(500);
-        }
-        finally
-        {
-          if (Stream != null)
-          {
-            Stream.Close();
-            Stream.Dispose();
-          }
-        }
-        if (!string.IsNullOrEmpty(Data))
-        {
-          string[] Blocks = Data.Split(new string[] { BlockSeparator }, StringSplitOptions.None);
-          string Block = Blocks[Blocks.Count() - 2];
-          Output = new Block(null, this, Block);
+          stream.Close();
+          stream.Dispose();
         }
       }
-      return Output;
+      if (string.IsNullOrEmpty(data)) return null;
+      var blocks = data.Split(new[] { BlockSeparator }, StringSplitOptions.None);
+      var block = blocks[blocks.Count() - 2];
+      return new Block(null, this, block);
     }
 
     public int Validate()
     {
       // Return 0 = No error, else return the block number with error
-      Block LastBlock = null;
-      int InvalidBlock = 0;
-      if (System.IO.File.Exists(PathNameFile()))
+      Block lastBlock = null;
+      var invalidBlock = 0;
+      if (!File.Exists(PathNameFile())) return invalidBlock;
+      using (var stream = File.OpenText(PathNameFile()))
       {
-        using (System.IO.StreamReader Stream = System.IO.File.OpenText(PathNameFile()))
+        var n = 0;
+        while (!stream.EndOfStream)
         {
-          int N = 0;
-          while (!Stream.EndOfStream)
+          n += 1;
+          var record = stream.ReadLine();
+          var block = new Block(lastBlock, this, record);
+          if (!block.IsValid())
           {
-            N += 1;
-            string Record = Stream.ReadLine();
-            Block Block = new Block(LastBlock, this, Record);
-            if (!Block.IsValid())
-            {
-              InvalidBlock = N;
-              break;
-            }
-            LastBlock = Block;
+            invalidBlock = n;
+            break;
           }
+
+          lastBlock = block;
         }
       }
-      return InvalidBlock;
-    }
-    public List<Block> GetBlocks(long FromPosition, out ReadBlocksResult Feedback)
-    {
-      var Blocks = new List<Block>();
-      Action<Block> Execute = delegate (Block Block)
-      {
-        Blocks.Add(Block);
-      };
-      Feedback = ReadBlocks(FromPosition, Execute, LenghtDataTrasmission);
-      return Blocks;
+
+      return invalidBlock;
     }
 
-    public ReadBlocksResult ReadBlocks(long FromPosition, Action<Block> Execute, long ExitAtLengthData = 0)
+    public List<Block> GetBlocks(long fromPosition, out ReadBlocksResult feedback)
+    {
+      var blocks = new List<Block>();
+      Action<Block> execute = delegate (Block block) { blocks.Add(block); };
+      feedback = ReadBlocks(fromPosition, execute, LenghtDataTrasmission);
+      return blocks;
+    }
+
+    public ReadBlocksResult ReadBlocks(long fromPosition, Action<Block> execute, long exitAtLengthData = 0)
     {
       //List<Block> List = new List<Block>();
-      long LengthData = 0;
-      Block LastBlock = GetPreviousBlock(FromPosition);
-      if (System.IO.File.Exists(PathNameFile()))
+      long lengthData = 0;
+      var lastBlock = GetPreviousBlock(fromPosition);
+      if (!File.Exists(PathNameFile())) return ReadBlocksResult.Completed;
+      using (var stream = File.OpenText(PathNameFile()))
       {
-        using (System.IO.StreamReader Stream = System.IO.File.OpenText(PathNameFile()))
+        stream.BaseStream.Position = fromPosition;
+        while (!stream.EndOfStream)
         {
-          Stream.BaseStream.Position = FromPosition;
-          while (!Stream.EndOfStream)
-          {
-            string Record = Stream.ReadLine();
-            LengthData += Record.Length;
-            Block Block = new Block(LastBlock, this, Record);
-            if (!Block.IsValid())
-              // Blockchain error!
-              return ReadBlocksResult.Error;
-            //List.Add(Block);
-            Execute(Block);
-            if (ExitAtLengthData != 0)
-              if (LengthData >= ExitAtLengthData)
-              {
-                return ReadBlocksResult.Partial;
-              }
-            LastBlock = Block;
-          }
+          var record = stream.ReadLine();
+          lengthData += record.Length;
+          var block = new Block(lastBlock, this, record);
+          if (!block.IsValid())
+            // Blockchain error!
+            return ReadBlocksResult.Error;
+          //List.Add(Block);
+          execute(block);
+          if (exitAtLengthData != 0)
+            if (lengthData >= exitAtLengthData)
+              return ReadBlocksResult.Partial;
+          lastBlock = block;
         }
       }
+
       return ReadBlocksResult.Completed;
       //return List;
     }
-    public enum ReadBlocksResult { Completed, Partial, Error }
-    private bool AddBlock(Block Block)
+
+    public enum ReadBlocksResult
     {
-      if (Block.AddedToBlockchain)
-        throw new System.InvalidOperationException("The block has already been added to the blockchain");
-      if (AddRecord(Block.Record))
-      {
-        Block.AddedToBlockchain = true;
-        return true;
-      }
-      return false;
+      Completed,
+      Partial,
+      Error
     }
-    private bool AddRecord(string Record)
+
+    private bool AddBlock(Block block)
+    {
+      if (block.AddedToBlockchain)
+        throw new InvalidOperationException("The block has already been added to the blockchain");
+      if (!AddRecord(block.Record)) return false;
+      block.AddedToBlockchain = true;
+      return true;
+    }
+
+    private bool AddRecord(string record)
     {
       try
       {
-        if ((!System.IO.Directory.Exists(Directory())))
+        if (!System.IO.Directory.Exists(Directory()))
           System.IO.Directory.CreateDirectory(Directory());
-        using (System.IO.StreamWriter sw = System.IO.File.AppendText(PathNameFile()))
+        using (var sw = File.AppendText(PathNameFile()))
         {
-          sw.Write(Record + BlockSeparator);
+          sw.Write(record + BlockSeparator);
         }
+
         return true;
       }
       catch (Exception ex)
       {
-        return false;
+        Debug.Print(ex.Message);
+        Debugger.Break();
       }
+
+      return false;
     }
   }
 }
-
