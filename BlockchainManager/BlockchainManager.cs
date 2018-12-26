@@ -13,56 +13,56 @@ namespace BlockchainManager
 {
   public static class NetworkInitializer
   {
-    public static Network CurrentNetwork { get; private set; }
+    public static NetworkConnection CurrentNetworkConnection { get; private set; }
 
-    internal static List<Network> HookedNetworks = new List<Network>();
+    private static readonly List<NetworkConnection> HookedNetworks = new List<NetworkConnection>();
 
     /// <summary>
-    ///   The new Blockchain instances will all be created on the selected network.
-    ///   Use this function to change the current network.
-    ///   By default, the current network will be the last initialized network.
+    ///   The new Blockchain instances will all be created on the selected networkConnection.
+    ///   Use this function to change the current networkConnection.
+    ///   By default, the current networkConnection will be the last initialized networkConnection.
     /// </summary>
-    /// <param name="index">Select the network with this Index</param>
+    /// <param name="index">Select the networkConnection with this Index</param>
     public static void ChooseCurrentNetwork(int index)
     {
       try
       {
-        CurrentNetwork = HookedNetworks[index];
+        CurrentNetworkConnection = HookedNetworks[index];
       }
       catch (Exception)
       {
-        throw new Exception("No network with this name has been initialized");
+        throw new Exception("No networkConnection with this name has been initialized");
       }
     }
 
     /// <summary>
-    ///   The new Blockchain instances will all be created on the current network.
-    ///   Use this function to change the current network.
-    ///   By default, the current network will be the last initialized network.
+    ///   The new Blockchain instances will all be created on the current networkConnection.
+    ///   Use this function to change the current networkConnection.
+    ///   By default, the current networkConnection will be the last initialized networkConnection.
     /// </summary>
-    /// <param name="network">The new current Network</param>
-    public static void SetCurrentNetwork(Network network)
+    /// <param name="networkConnection">The new current NetworkConnection</param>
+    public static void SetCurrentNetwork(NetworkConnection networkConnection)
     {
-      CurrentNetwork = network;
+      CurrentNetworkConnection = networkConnection;
     }
 
     /// <summary>
-    ///   This method initializes a new network class.
-    ///   A network is a p2p network made up of multiple nodes.
+    ///   This method initializes a new networkConnection class.
+    ///   A networkConnection is a p2p networkConnection made up of multiple nodes.
     ///   By repeating this command, you can link to multiple networks to use or participate in different networks
     ///   simultaneously.
-    ///   You can join the network as a node, and contribute to decentralization, or hook yourself to the network as an
+    ///   You can join the networkConnection as a node, and contribute to decentralization, or hook yourself to the networkConnection as an
     ///   external user.
     ///   To create a node, set the MyAddress parameter with your web address.If MyAddress is not set then you are an external
     ///   user.
     /// </summary>
     /// <param name="entryPoints">
     ///   Value pairs Address and MachineName: The list of permanent access points nodes, to access the
-    ///   network
+    ///   networkConnection
     /// </param>
     /// <param name="networkName">The name of the infrastructure. For tests we recommend using "testnet"</param>
     /// <param name="myNode">Data related to your node. If you do not want to create the node, omit this parameter</param>
-    public static Network HookToNetwork(Dictionary<string, string> entryPoints, string networkName = "testnet",
+    public static NetworkConnection HookToNetwork(Dictionary<string, string> entryPoints, string networkName = "testnet",
       NodeInitializer myNode = null)
     {
       //#if DEBUG
@@ -84,10 +84,10 @@ namespace BlockchainManager
           nodes = nodeList.ToArray();
         }
 
-        var network = new Network(nodes, networkName, myNode);
+        var network = new NetworkConnection(nodes, networkName, myNode);
         SetNetwork(network);
         HookedNetworks.Add(network);
-        CurrentNetwork = network;
+        CurrentNetworkConnection = network;
         return network;
       }
       catch (Exception ex)
@@ -98,10 +98,10 @@ namespace BlockchainManager
       }
     }
 
-    private static bool SetNetwork(Network network)
+    private static bool SetNetwork(NetworkConnection networkConnection)
     {
-      network.AddSyncDataFromBufferAction(ActionSync, "DataVector");
-      return network.Protocol.AddOnReceivingObjectAction("VectorBlocks", Blockchain.GetVectorBlocks);
+      networkConnection.AddSyncDataFromPipelineAction(ActionSync, "DataVector");
+      return networkConnection.Protocol.AddOnReceivingObjectAction("VectorBlocks", Blockchain.GetVectorBlocks);
     }
 
     private static void ActionSync(string xmlObject, long timestamp)
@@ -116,38 +116,38 @@ namespace BlockchainManager
   {
     public Blockchain()
     {
-      _network = NetworkInitializer.CurrentNetwork;
+      _networkConnection = NetworkInitializer.CurrentNetworkConnection;
     }
 
     public Blockchain(string[] publicKeys, string @group, string name, BlockchainType type,
-      BlockSynchronization synchronizationType, bool acceptBodySignature, int maxBlockLenght = 2048,
+      BlockSynchronization synchronizationType, bool acceptBodySignature, int maxBlockLength = 2048,
       double daysExpiredAfterInactivity = 30)
     {
-      _network = NetworkInitializer.CurrentNetwork;
+      _networkConnection = NetworkInitializer.CurrentNetworkConnection;
       PublicKeys = publicKeys;
       Group = @group;
       Name = name;
       Type = type;
       SynchronizationType = synchronizationType;
       AcceptBodySignature = acceptBodySignature;
-      MaxBlockLenght = maxBlockLenght;
+      MaxBlockLength = maxBlockLength;
       ExpiredAfterInactivity = TimeSpan.FromDays(daysExpiredAfterInactivity);
     }
 
     public Blockchain(string @group, string name, BlockchainType type, BlockSynchronization synchronizationType,
-      bool acceptBodySignature, int maxBlockLenght = 2048, double daysExpiredAfterInactivity = 30)
+      bool acceptBodySignature, int maxBlockLength = 2048, double daysExpiredAfterInactivity = 30)
     {
-      _network = NetworkInitializer.CurrentNetwork;
+      _networkConnection = NetworkInitializer.CurrentNetworkConnection;
       Group = @group;
       Name = name;
       Type = type;
       SynchronizationType = synchronizationType;
       AcceptBodySignature = acceptBodySignature;
-      MaxBlockLenght = maxBlockLenght;
+      MaxBlockLength = maxBlockLength;
       ExpiredAfterInactivity = TimeSpan.FromDays(daysExpiredAfterInactivity);
     }
 
-    private readonly Network _network;
+    private readonly NetworkConnection _networkConnection;
 
     public void Save()
     {
@@ -166,7 +166,7 @@ namespace BlockchainManager
     {
       try
       {
-        var file = PathNameFile(NetworkInitializer.CurrentNetwork, @group, name) + ".info";
+        var file = PathNameFile(NetworkInitializer.CurrentNetworkConnection, @group, name) + ".info";
         Blockchain value;
         if (File.Exists(file))
         {
@@ -184,7 +184,6 @@ namespace BlockchainManager
         Debug.Print(ex.Message);
         Debugger.Break();
       }
-
       return null;
     }
 
@@ -212,12 +211,12 @@ namespace BlockchainManager
 
     /// <summary>
     ///   If you use the AddInLocalAndSync mode, make sure that no blocks are added simultaneously.
-    ///   If you use SendToTheNetworkBuffer mode, the network will add blocks to the blockchain.
+    ///   If you use SendToTheNetworkPipeline mode, the networkConnection will add blocks to the blockchain.
     /// </summary>
     public enum BlockSynchronization
     {
       AddInLocalAndSync,
-      SendToTheNetworkBuffer
+      SendToTheNetworkPipeline
     }
 
     public BlockchainType Type;
@@ -229,8 +228,8 @@ namespace BlockchainManager
       Binary
     }
 
-    public int MaxBlockLenght = 2048;
-    private const int LenghtDataTrasmission = 1024 * 1024 * 20; //20 mega;
+    public int MaxBlockLength = 2048;
+    private const int LenghtDataTransmission = 1024 * 1024 * 20; //20 mega;
     private const string BlockSeparator = "\r\n";
     private const string FieldsSeparator = "\t";
 
@@ -307,7 +306,7 @@ namespace BlockchainManager
     /// <returns>Returns False if the operation fails</returns>
     public bool RequestAnyNewBlocks()
     {
-      return _network.InteractWithRandomNode(node =>
+      return _networkConnection.InteractWithRandomNode(node =>
       {
         try
         {
@@ -332,10 +331,10 @@ namespace BlockchainManager
       {
         returnVector = null;
         object obj;
-        var xmlObjectVector = _network.Comunication.SendObjectSync(vector, server, null, machineName);
+        var xmlObjectVector = _networkConnection.Communication.SendObjectSync(vector, server, null, machineName);
         if (string.IsNullOrEmpty(xmlObjectVector)) continue;
-        Converter.XmlToObject(xmlObjectVector, typeof(Comunication.ObjectVector), out var returmObj);
-        var objVector = (Comunication.ObjectVector)returmObj;
+        Converter.XmlToObject(xmlObjectVector, typeof(Communication.ObjectVector), out var returnObj);
+        var objVector = (Communication.ObjectVector)returnObj;
         var returnObjectName = objVector.ObjectName;
         var returnXmlObject = objVector.XmlObject;
         if (returnObjectName == "VectorBlocks")
@@ -372,7 +371,7 @@ namespace BlockchainManager
     }
 
     /// <summary>
-    ///   Send a locally block it to the nodes of the network
+    ///   Send a locally block it to the nodes of the networkConnection
     /// </summary>
     /// <param name="block">The block</param>
     /// <returns>Returns False if the operation fails</returns>
@@ -382,7 +381,7 @@ namespace BlockchainManager
     }
 
     /// <summary>
-    ///   Send locally blocks it to the nodes of the network
+    ///   Send locally blocks it to the nodes of the networkConnection
     /// </summary>
     /// <param name="blocks">The blocks</param>
     /// <returns>Returns False if the operation fails</returns>
@@ -392,7 +391,7 @@ namespace BlockchainManager
     }
 
     /// <summary>
-    ///   Synchronize a block written locally and transmit it to the nodes of the network
+    ///   Synchronize a block written locally and transmit it to the nodes of the networkConnection
     /// </summary>
     /// <param name="block">The block</param>
     /// <param name="position">Base 0 position</param>
@@ -403,19 +402,19 @@ namespace BlockchainManager
     }
 
     /// <summary>
-    ///   Synchronize the blocks written locally and transmit it to the nodes of the network
+    ///   Synchronize the blocks written locally and transmit it to the nodes of the networkConnection
     /// </summary>
     /// <param name="blocks">The blocks</param>
     /// <param name="position">Base 0 position</param>
     /// <returns>Returns False if the operation fails</returns>
     public bool SyncBlocksToNetwork(List<Block> blocks, long position)
     {
-      return _network.InteractWithRandomNode(node =>
+      return _networkConnection.InteractWithRandomNode(node =>
       {
         try
         {
           var vector = new VectorBlocks { Blockchain = this, Blocks = blocks, Position = position };
-          if (node.MachineName != _network.MachineName)
+          if (node.MachineName != _networkConnection.MachineName)
             VectorToNode(vector, node.Address, node.MachineName);
           return true;
         }
@@ -554,16 +553,15 @@ namespace BlockchainManager
           default:
             throw new ArgumentOutOfRangeException();
         }
-
         _Block(blockchain, data);
       }
 
       /// <summary>
-      ///   Use this method only for data that exits from shared buffer
+      ///   Use this method only for data that exits from shared pipeline
       /// </summary>
       /// <param name="blockchain"></param>
       /// <param name="data"></param>
-      /// <param name="timestamp">The timestam assigned by the buffer</param>
+      /// <param name="timestamp">The timestam assigned by the pipeline</param>
       internal Block(Blockchain blockchain, string data, DateTime timestamp)
       {
         _Block(blockchain, data, timestamp, true);
@@ -595,13 +593,13 @@ namespace BlockchainManager
         else
         {
           var vector = new DataVector { Data = data, Blockchain = blockchain };
-          blockchain._network.AddToSaredBuffer(vector);
+          blockchain._networkConnection.AddToSharedPipeline(vector);
           //Blockchain.SendBlockToNetwork(this);
         }
       }
 
       /// <summary>
-      ///   This element is used to send the data inserted in the block to the shared buffer
+      ///   This element is used to send the data inserted in the block to the shared pipeline
       /// </summary>
       public class DataVector
       {
@@ -626,9 +624,9 @@ namespace BlockchainManager
         {
           foreach (var publicKey in _blockchain.PublicKeys)
           {
-            var rsAalg = new RSACryptoServiceProvider();
-            rsAalg.ImportCspBlob(Convert.FromBase64String(publicKey));
-            if (rsAalg.VerifyHash(CalculateChecksumBytes(), CryptoConfig.MapNameToOID("SHA256"), ChecksumBytes))
+            var rsaAlg = new RSACryptoServiceProvider();
+            rsaAlg.ImportCspBlob(Convert.FromBase64String(publicKey));
+            if (rsaAlg.VerifyHash(CalculateChecksumBytes(), CryptoConfig.MapNameToOID("SHA256"), ChecksumBytes))
               return true;
           }
 
@@ -772,9 +770,9 @@ namespace BlockchainManager
       {
         try
         {
-          var rsAalg = new RSACryptoServiceProvider();
-          rsAalg.ImportCspBlob(Convert.FromBase64String(publicKey));
-          return rsAalg.VerifyHash(HashBody(), CryptoConfig.MapNameToOID("SHA256"), signature);
+          var rsaAlg = new RSACryptoServiceProvider();
+          rsaAlg.ImportCspBlob(Convert.FromBase64String(publicKey));
+          return rsaAlg.VerifyHash(HashBody(), CryptoConfig.MapNameToOID("SHA256"), signature);
         }
         catch (Exception e)
         {
@@ -805,7 +803,7 @@ namespace BlockchainManager
         {
           if (string.IsNullOrEmpty(value)) return;
           // ===========PARTS==========================
-          // Data + Timestamp + (Signatures) + Checksum
+          // Data + Timestamp + (Signature) + Checksum
           // ==========================================
           var parts = value.Split(new[] { FieldsSeparator }, StringSplitOptions.None);
           //if (Blockchain.Type != BlockchainType.LineOfText)
@@ -828,28 +826,28 @@ namespace BlockchainManager
       return Path.Combine(path, pathNameFile);
     }
 
-    private static string Directory(Network network, string @group)
+    private static string Directory(NetworkConnection networkConnection, string @group)
     {
-      return MapPath(Path.Combine(Setup.Ambient.Repository, AbjustNameFile(network.NetworkName),
-        AbjustNameFile(@group)));
+      return MapPath(Path.Combine(Setup.Ambient.Repository, AdjustNameFile(networkConnection.NetworkName),
+        AdjustNameFile(@group)));
     }
 
     private string Directory()
     {
-      return Directory(_network, Group);
+      return Directory(_networkConnection, Group);
     }
 
-    private static string PathNameFile(Network network, string @group, string name)
+    private static string PathNameFile(NetworkConnection networkConnection, string @group, string name)
     {
-      return Path.Combine(Directory(network, @group), AbjustNameFile(name) + ".bloks");
+      return Path.Combine(Directory(networkConnection, @group), AdjustNameFile(name) + ".bloks");
     }
 
     private string PathNameFile()
     {
-      return Path.Combine(Directory(), AbjustNameFile(Name) + ".bloks");
+      return Path.Combine(Directory(), AdjustNameFile(Name) + ".bloks");
     }
 
-    private static string AbjustNameFile(string fileName)
+    private static string AdjustNameFile(string fileName)
     {
       var result = "";
       foreach (var c in fileName)
@@ -882,15 +880,15 @@ namespace BlockchainManager
         stream = new StreamReader(file);
         if (position == -1)
           position = stream.BaseStream.Length;
-        var startRead = position - MaxBlockLenght;
+        var startRead = position - MaxBlockLength;
         if (startRead < 0)
           startRead = 0;
         stream.BaseStream.Position = startRead;
 
         var len = (int)(position - startRead);
-        var buffer = new char[len];
-        stream.Read(buffer, 0, len);
-        data = new string(buffer);
+        var pipeline = new char[len];
+        stream.Read(pipeline, 0, len);
+        data = new string(pipeline);
       }
       catch (Exception ex)
       {
@@ -944,7 +942,7 @@ namespace BlockchainManager
     {
       var blocks = new List<Block>();
       Action<Block> execute = delegate (Block block) { blocks.Add(block); };
-      feedback = ReadBlocks(fromPosition, execute, LenghtDataTrasmission);
+      feedback = ReadBlocks(fromPosition, execute, LenghtDataTransmission);
       return blocks;
     }
 
@@ -1012,7 +1010,6 @@ namespace BlockchainManager
         Debug.Print(ex.Message);
         Debugger.Break();
       }
-
       return false;
     }
   }
